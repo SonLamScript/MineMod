@@ -5,10 +5,9 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.Items;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.RaycastContext;
 import net.minecraft.world.World;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -23,10 +22,10 @@ public class AutoWaterClutchMixin {
         ClientPlayerEntity player = (ClientPlayerEntity) (Object) this;
         MinecraftClient client = MinecraftClient.getInstance();
 
-        // Kiểm tra thực thể hợp lệ và trạng thái đang rơi tự do
-        if (player != null && player.fallDistance > 1.5F && !player.getAbilities().flying && !player.isSpectator()) {
+        // 1. Kiểm tra điều kiện rơi an toàn (Chỉ kích hoạt khi vận tốc đi xuống lớn hơn 0.5)
+        if (player != null && player.getVelocity().y < -0.5 && !player.getAbilities().flying && !player.isSpectator()) {
             
-            // Xác định tay nào đang giữ xô nước
+            // 2. Kiểm tra xô nước trên tay
             Hand waterHand = null;
             if (player.getMainHandStack().isOf(Items.WATER_BUCKET)) {
                 waterHand = Hand.MAIN_HAND;
@@ -34,37 +33,36 @@ public class AutoWaterClutchMixin {
                 waterHand = Hand.OFF_HAND;
             }
 
-            // Lấy World an toàn trực tiếp từ client world (Tránh dùng player.getWorld() lỗi mapping)
             World world = client.world;
 
             if (waterHand != null && world != null) {
-                // Thay thế getPos() bằng cách tự tạo Vec3d từ getX(), getY(), getZ()
+                // Tọa độ hiện tại của người chơi
                 double px = player.getX();
                 double py = player.getY();
                 double pz = player.getZ();
-                
-                Vec3d playerPos = new Vec3d(px, py, pz);
-                Vec3d eyePos = player.getEyePos();
-                
-                // Tạo vector tia quét thẳng xuống dưới chân 3.5 block
-                Vec3d targetVector = new Vec3d(px, py - 3.5, pz);
 
-                BlockHitResult hitResult = world.raycast(new RaycastContext(
-                        eyePos,
-                        targetVector,
-                        RaycastContext.ShapeType.COLLIDER,
-                        RaycastContext.FluidHandling.NONE,
-                        player
-                ));
-
-                // Nếu tia va chạm trúng một bề mặt block cứng
-                if (hitResult.getType() == HitResult.Type.BLOCK) {
-                    BlockPos targetPos = hitResult.getBlockPos();
+                // 3. Tính toán khoảng cách quét động dựa trên vận tốc rơi (Rơi càng nhanh quét càng xa, tối đa 5 block)
+                double scanDistance = Math.max(3.5, Math.abs(player.getVelocity().y) * 3.0);
+                
+                // Vòng lặp kiểm tra các block bên dưới chân từ gần đến xa
+                for (double currentCheck = 0.5; currentCheck <= scanDistance; currentCheck += 0.5) {
+                    BlockPos checkPos = BlockPos.ofFloored(px, py - currentCheck, pz);
                     
-                    // Nếu block mục tiêu không phải là không khí, thực hiện đặt nước luôn
-                    if (!world.getBlockState(targetPos).isAir()) {
+                    // Nếu phát hiện block bên dưới chân là block rắn (đất, đá...) và block ngay phía trên nó là không khí
+                    if (!world.getBlockState(checkPos).isAir() && world.getBlockState(checkPos.up()).isAir()) {
+                        
                         if (client.interactionManager != null) {
-                            client.interactionManager.interactBlock(player, waterHand, hitResult);
+                            // Tạo một kết quả va chạm giả lập: Nhắm vào MẶT TRÊN (Direction.UP) của block rắn dưới chân
+                            BlockHitResult customHit = new BlockHitResult(
+                                    new Vec3d(px, py - currentCheck + 1.0, pz), 
+                                    Direction.UP, 
+                                    checkPos, 
+                                    false
+                            );
+                            
+                            // Thực hiện hành động chuột phải để đặt nước
+                            client.interactionManager.interactBlock(player, waterHand, customHit);
+                            break; // Đặt thành công thì dừng vòng lặp quét của tick này
                         }
                     }
                 }
