@@ -1,0 +1,44 @@
+name: Build Minecraft 1.21.1 Mod
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-mod:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Lấy mã nguồn từ repo
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # 2. Cài đặt JDK 21 (Bắt buộc cho Minecraft 1.21+)
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    # 3. Tối ưu hóa bộ nhớ đệm Gradle
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
+
+    # 4. Cấp quyền chạy script build
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    # 5. Tiến hành biên dịch Mod sang .jar
+    - name: Build Mod Project
+      run: ./gradlew build
+
+    # 6. Lọc và đẩy duy nhất file mod thành phẩm lên web
+    - name: Upload Mod Jar Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Minecraft-1.21.1-Mod
+        path: |
+          build/libs/*.jar
+          !build/libs/*-sources.jar
+          !build/libs/*-dev.jar
