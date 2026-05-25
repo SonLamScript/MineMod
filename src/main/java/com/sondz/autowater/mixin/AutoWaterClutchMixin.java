@@ -9,6 +9,7 @@ import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
+import net.minecraft.world.World;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -22,10 +23,10 @@ public class AutoWaterClutchMixin {
         ClientPlayerEntity player = (ClientPlayerEntity) (Object) this;
         MinecraftClient client = MinecraftClient.getInstance();
 
-        // 1. Kiểm tra trạng thái rơi (Trong Yarn: fallDistance, getAbilities().flying, isSpectator())
+        // Kiểm tra thực thể hợp lệ và trạng thái đang rơi tự do
         if (player != null && player.fallDistance > 1.5F && !player.getAbilities().flying && !player.isSpectator()) {
             
-            // 2. Xác định tay nào đang cầm xô nước
+            // Xác định tay nào đang giữ xô nước
             Hand waterHand = null;
             if (player.getMainHandStack().isOf(Items.WATER_BUCKET)) {
                 waterHand = Hand.MAIN_HAND;
@@ -33,15 +34,22 @@ public class AutoWaterClutchMixin {
                 waterHand = Hand.OFF_HAND;
             }
 
-            // 3. Xử lý logic đặt nước nếu tìm thấy xô nước
-            if (waterHand != null && player.getWorld() != null) {
-                Vec3d playerPos = player.getPos(); // Lấy vị trí dạng Vec3d
+            // Lấy World an toàn trực tiếp từ client world (Tránh dùng player.getWorld() lỗi mapping)
+            World world = client.world;
+
+            if (waterHand != null && world != null) {
+                // Thay thế getPos() bằng cách tự tạo Vec3d từ getX(), getY(), getZ()
+                double px = player.getX();
+                double py = player.getY();
+                double pz = player.getZ();
+                
+                Vec3d playerPos = new Vec3d(px, py, pz);
                 Vec3d eyePos = player.getEyePos();
                 
-                // Quét tia (Raycast) thẳng xuống dưới chân khoảng 3.5 block
-                Vec3d targetVector = new Vec3d(playerPos.x, playerPos.y - 3.5, playerPos.z);
+                // Tạo vector tia quét thẳng xuống dưới chân 3.5 block
+                Vec3d targetVector = new Vec3d(px, py - 3.5, pz);
 
-                BlockHitResult hitResult = player.getWorld().raycast(new RaycastContext(
+                BlockHitResult hitResult = world.raycast(new RaycastContext(
                         eyePos,
                         targetVector,
                         RaycastContext.ShapeType.COLLIDER,
@@ -49,14 +57,13 @@ public class AutoWaterClutchMixin {
                         player
                 ));
 
-                // 4. Nếu tia va chạm trúng một Block
+                // Nếu tia va chạm trúng một bề mặt block cứng
                 if (hitResult.getType() == HitResult.Type.BLOCK) {
                     BlockPos targetPos = hitResult.getBlockPos();
                     
-                    // Kiểm tra block đó không phải là không khí hoặc nước sẵn có để tránh lãng phí hành động
-                    if (!player.getWorld().getBlockState(targetPos).isAir()) {
+                    // Nếu block mục tiêu không phải là không khí, thực hiện đặt nước luôn
+                    if (!world.getBlockState(targetPos).isAir()) {
                         if (client.interactionManager != null) {
-                            // Giả lập tương tác (chuột phải) vào block dưới chân
                             client.interactionManager.interactBlock(player, waterHand, hitResult);
                         }
                     }
