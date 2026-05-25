@@ -7,6 +7,7 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -21,10 +22,10 @@ public class AutoWaterClutchMixin {
         ClientPlayerEntity player = (ClientPlayerEntity) (Object) this;
         MinecraftClient client = MinecraftClient.getInstance();
 
-        // Chỉ xử lý nếu người chơi đang rơi tự do và không ở trong chế độ sáng tạo/khán giả
-        if (player != null && player.fallDistance > 1.5F && !player.isAbilitiesFlying() && !player.isSpectator()) {
+        // 1. Kiểm tra trạng thái rơi (Trong Yarn: fallDistance, getAbilities().flying, isSpectator())
+        if (player != null && player.fallDistance > 1.5F && !player.getAbilities().flying && !player.isSpectator()) {
             
-            // Kiểm tra xem người chơi có đang cầm xô nước ở tay chính hoặc tay phụ không
+            // 2. Xác định tay nào đang cầm xô nước
             Hand waterHand = null;
             if (player.getMainHandStack().isOf(Items.WATER_BUCKET)) {
                 waterHand = Hand.MAIN_HAND;
@@ -32,25 +33,30 @@ public class AutoWaterClutchMixin {
                 waterHand = Hand.OFF_HAND;
             }
 
-            // Nếu tìm thấy xô nước trên tay
-            if (waterHand != null) {
-                // Raycast thẳng xuống dưới theo hướng nhìn để tìm block bề mặt sắp va chạm
+            // 3. Xử lý logic đặt nước nếu tìm thấy xô nước
+            if (waterHand != null && player.getWorld() != null) {
+                Vec3d playerPos = player.getPos(); // Lấy vị trí dạng Vec3d
+                Vec3d eyePos = player.getEyePos();
+                
+                // Quét tia (Raycast) thẳng xuống dưới chân khoảng 3.5 block
+                Vec3d targetVector = new Vec3d(playerPos.x, playerPos.y - 3.5, playerPos.z);
+
                 BlockHitResult hitResult = player.getWorld().raycast(new RaycastContext(
-                        player.getEyePos(),
-                        player.getPos().add(0, -3.0, 0), // Quét khoảng cách 3 block dưới chân
+                        eyePos,
+                        targetVector,
                         RaycastContext.ShapeType.COLLIDER,
                         RaycastContext.FluidHandling.NONE,
                         player
                 ));
 
-                // Nếu phát hiện có block rắn bên dưới và không phải là nước có sẵn
+                // 4. Nếu tia va chạm trúng một Block
                 if (hitResult.getType() == HitResult.Type.BLOCK) {
                     BlockPos targetPos = hitResult.getBlockPos();
                     
-                    // Đảm bảo không cố đặt nước vào block không khí hoặc block chất lỏng
+                    // Kiểm tra block đó không phải là không khí hoặc nước sẵn có để tránh lãng phí hành động
                     if (!player.getWorld().getBlockState(targetPos).isAir()) {
-                        // Giả lập hành động nhấn chuột phải để đặt nước
                         if (client.interactionManager != null) {
+                            // Giả lập tương tác (chuột phải) vào block dưới chân
                             client.interactionManager.interactBlock(player, waterHand, hitResult);
                         }
                     }
